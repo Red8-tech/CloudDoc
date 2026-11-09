@@ -94,3 +94,17 @@ def test_content_rejects_oversized_file():
     with pytest.raises(ValidationError) as exc:
         validate_file_content("txt", b"a" * (MAX_FILE_SIZE_BYTES + 1))
     assert exc.value.code == "FILE_TOO_LARGE"
+
+
+def test_content_rejects_invalid_utf8_without_null_bytes():
+    # "café" encoded as Latin-1, which is not valid UTF-8
+    with pytest.raises(ValidationError) as exc:
+        validate_file_content("txt", b"caf\xe9")
+    assert exc.value.code == "INVALID_FILE_TYPE"
+    assert "UTF-8" in exc.value.message
+
+
+def test_content_rejects_unsupported_extension():
+    with pytest.raises(ValidationError) as exc:
+        validate_file_content("png", b"data")
+    assert exc.value.code == "INVALID_FILE_TYPE"

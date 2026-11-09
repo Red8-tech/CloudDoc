@@ -6,3 +6,5 @@ __pycache__/
 .env
 samconfig.toml
 *.zip
+.coverage
+htmlcov/
