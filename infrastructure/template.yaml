@@ -8,7 +8,14 @@ Parameters:
     Default: dev
     AllowedValues: [dev, prod]
 
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 10
+    MemorySize: 256
+
 Resources:
+  # ---------- Storage ----------
   UploadBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
@@ -49,7 +56,83 @@ Resources:
               Bool:
                 aws:SecureTransport: "false"
 
+  # ---------- API ----------
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10   # short spikes allowed, per route
+        ThrottlingRateLimit: 5     # sustained requests per second, per route
+
+  # ---------- Logs (kept 14 days so they never pile up) ----------
+  UploadFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/clouddoc-upload-${Stage}"
+      RetentionInDays: 14
+
+  StatusFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/clouddoc-status-${Stage}"
+      RetentionInDays: 14
+
+  # ---------- Functions ----------
+  UploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub clouddoc-upload-${Stage}
+      CodeUri: ../src/
+      Handler: api.upload_handler.lambda_handler
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref UploadBucket
+          MAX_FILE_SIZE_BYTES: "10485760"
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        LogGroup: !Ref UploadFunctionLogGroup
+      Policies:
+        # The presigned form is signed with this role, so the role must be
+        # allowed to write the objects it signs for. Nothing else.
+        - Statement:
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub "${UploadBucket.Arn}/uploads/*"
+      Events:
+        CreateDocument:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /documents
+            Method: POST
+
+  StatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub clouddoc-status-${Stage}
+      CodeUri: ../src/
+      Handler: api.status_handler.lambda_handler
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        LogGroup: !Ref StatusFunctionLogGroup
+      Events:
+        GetDocument:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /documents/{document_id}
+            Method: GET
+
 Outputs:
   UploadBucketName:
     Description: Name of the upload bucket
     Value: !Ref UploadBucket
+  ApiId:
+    Description: HTTP API ID
+    Value: !Ref HttpApi
+  ApiUrl:
+    Description: Base URL of the API
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
