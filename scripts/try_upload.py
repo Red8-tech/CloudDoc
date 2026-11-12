@@ -8,13 +8,16 @@ import os
 import re
 import sys
 import uuid
+from pathlib import Path
 
-import requests
-from botocore.exceptions import ClientError
-from pypdf import PdfWriter
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from src.services import s3_service
-from src.utils.config import MAX_FILE_SIZE_BYTES
+import requests  # noqa: E402
+from botocore.exceptions import ClientError  # noqa: E402
+from pypdf import PdfWriter  # noqa: E402
+
+from services import s3_service  # noqa: E402
+from utils.config import MAX_FILE_SIZE_BYTES  # noqa: E402
 
 
 def make_pdf() -> bytes:

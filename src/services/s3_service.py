@@ -2,7 +2,7 @@
 import boto3
 from botocore.config import Config
 
-from src.utils import config
+from utils import config
 
 
 def get_s3_client():

@@ -4,7 +4,7 @@ from io import BytesIO
 
 from pypdf import PdfReader
 
-from src.utils.validators import ValidationError, get_extension, validate_file_content
+from utils.validators import ValidationError, get_extension, validate_file_content
 
 
 def count_pdf_pages(content: bytes) -> int:

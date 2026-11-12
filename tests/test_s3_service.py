@@ -7,8 +7,8 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from src.services import s3_service
-from src.utils import config
+from services import s3_service
+from utils import config
 
 BUCKET = "clouddoc-test-bucket"
 DOC_ID = "3f2b8c1e-5a47-4d0e-9c1b-7a9d2e6f4b10"

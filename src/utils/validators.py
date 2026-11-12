@@ -1,5 +1,5 @@
 """Validation rules for CloudDoc uploads."""
-from src.utils.config import ALLOWED_TYPES, MAX_FILE_SIZE_BYTES, MAX_FILENAME_LENGTH
+from utils.config import ALLOWED_TYPES, MAX_FILE_SIZE_BYTES, MAX_FILENAME_LENGTH
 
 
 class ValidationError(Exception):

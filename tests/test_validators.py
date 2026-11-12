@@ -1,7 +1,7 @@
 import pytest
 
-from src.utils.config import MAX_FILE_SIZE_BYTES
-from src.utils.validators import (
+from utils.config import MAX_FILE_SIZE_BYTES
+from utils.validators import (
     ValidationError,
     get_extension,
     validate_file_content,

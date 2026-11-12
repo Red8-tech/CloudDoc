@@ -2,8 +2,8 @@ import re
 
 import pytest
 
-from src.processor.metadata_extractor import extract_metadata
-from src.utils.validators import ValidationError
+from processor.metadata_extractor import extract_metadata
+from utils.validators import ValidationError
 
 
 def test_pdf_metadata(make_pdf):
