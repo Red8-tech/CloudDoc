@@ -56,6 +56,7 @@ def lambda_handler(event, context):
             "expires_in": config.UPLOAD_URL_EXPIRY_SECONDS,
         })
     except ValidationError as exc:
+        logger.info("Rejected upload request: %s", exc.code)
         return error_response(exc.code, exc.message)
     except Exception:
         # Details go to CloudWatch only, never to the client.
