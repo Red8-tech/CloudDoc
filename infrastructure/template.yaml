@@ -15,11 +15,51 @@ Globals:
     MemorySize: 256
 
 Resources:
+  # ---------- Queues ----------
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub clouddoc-documents-dlq-${Stage}
+      MessageRetentionPeriod: 1209600   # 14 days to investigate failures
+      SqsManagedSseEnabled: true
+
+  DocumentQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub clouddoc-documents-${Stage}
+      VisibilityTimeout: 180            # 6x the worker timeout, as AWS recommends
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3              # third failed attempt moves the message to the DLQ
+
+  DocumentQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref DocumentQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowUploadBucketToSendMessages
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt DocumentQueue.Arn
+            Condition:
+              ArnEquals:
+                # Built from the bucket name, not GetAtt, to avoid a circular dependency
+                aws:SourceArn: !Sub "arn:aws:s3:::clouddoc-uploads-${Stage}-${AWS::AccountId}-${AWS::Region}"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
   # ---------- Storage ----------
   UploadBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
+    DependsOn: DocumentQueuePolicy
     Properties:
       BucketName: !Sub clouddoc-uploads-${Stage}-${AWS::AccountId}-${AWS::Region}
       PublicAccessBlockConfiguration:
@@ -37,6 +77,15 @@ Resources:
             Status: Enabled
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 1
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: "s3:ObjectCreated:*"
+            Queue: !GetAtt DocumentQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
 
   UploadBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -62,10 +111,10 @@ Resources:
     Properties:
       StageName: !Ref Stage
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 10   # short spikes allowed, per route
-        ThrottlingRateLimit: 5     # sustained requests per second, per route
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
 
-  # ---------- Logs (kept 14 days so they never pile up) ----------
+  # ---------- Logs (kept 14 days) ----------
   UploadFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -76,6 +125,12 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/clouddoc-status-${Stage}"
+      RetentionInDays: 14
+
+  WorkerFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/clouddoc-worker-${Stage}"
       RetentionInDays: 14
 
   # ---------- Functions ----------
@@ -94,8 +149,6 @@ Resources:
         ApplicationLogLevel: INFO
         LogGroup: !Ref UploadFunctionLogGroup
       Policies:
-        # The presigned form is signed with this role, so the role must be
-        # allowed to write the objects it signs for. Nothing else.
         - Statement:
             - Effect: Allow
               Action: s3:PutObject
@@ -126,6 +179,44 @@ Resources:
             Path: /documents/{document_id}
             Method: GET
 
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub clouddoc-worker-${Stage}
+      CodeUri: ../src/
+      Handler: processor.document_worker.lambda_handler
+      Timeout: 30
+      MemorySize: 512
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        LogGroup: !Ref WorkerFunctionLogGroup
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:DeleteObject
+              Resource: !Sub "${UploadBucket.Arn}/uploads/*"
+            # Without ListBucket, S3 answers 403 instead of 404 for a missing key,
+            # which would turn harmless duplicate messages into retries.
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt UploadBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: "uploads/*"
+      Events:
+        DocumentQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt DocumentQueue.Arn
+            BatchSize: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            ScalingConfig:
+              MaximumConcurrency: 2   # caps parallel workers, so a flood cannot run up costs
+
 Outputs:
   UploadBucketName:
     Description: Name of the upload bucket
@@ -136,3 +227,9 @@ Outputs:
   ApiUrl:
     Description: Base URL of the API
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+  QueueUrl:
+    Description: Document processing queue
+    Value: !Ref DocumentQueue
+  DeadLetterQueueUrl:
+    Description: Dead-letter queue for failed jobs
+    Value: !Ref DeadLetterQueue
