@@ -54,6 +54,24 @@ Resources:
               StringEquals:
                 aws:SourceAccount: !Ref AWS::AccountId
 
+  # ---------- Database ----------
+  DocumentsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TableName: !Sub clouddoc-documents-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: document_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: document_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
   # ---------- Storage ----------
   UploadBucket:
     Type: AWS::S3::Bucket
@@ -143,6 +161,7 @@ Resources:
       Environment:
         Variables:
           BUCKET_NAME: !Ref UploadBucket
+          TABLE_NAME: !Ref DocumentsTable
           MAX_FILE_SIZE_BYTES: "10485760"
       LoggingConfig:
         LogFormat: JSON
@@ -153,6 +172,9 @@ Resources:
             - Effect: Allow
               Action: s3:PutObject
               Resource: !Sub "${UploadBucket.Arn}/uploads/*"
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt DocumentsTable.Arn
       Events:
         CreateDocument:
           Type: HttpApi
@@ -160,17 +182,25 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /documents
             Method: POST
-
+  
   StatusFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub clouddoc-status-${Stage}
       CodeUri: ../src/
       Handler: api.status_handler.lambda_handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref DocumentsTable
       LoggingConfig:
         LogFormat: JSON
         ApplicationLogLevel: INFO
         LogGroup: !Ref StatusFunctionLogGroup
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt DocumentsTable.Arn
       Events:
         GetDocument:
           Type: HttpApi
@@ -187,6 +217,9 @@ Resources:
       Handler: processor.document_worker.lambda_handler
       Timeout: 30
       MemorySize: 512
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref DocumentsTable
       LoggingConfig:
         LogFormat: JSON
         ApplicationLogLevel: INFO
@@ -198,14 +231,17 @@ Resources:
                 - s3:GetObject
                 - s3:DeleteObject
               Resource: !Sub "${UploadBucket.Arn}/uploads/*"
-            # Without ListBucket, S3 answers 403 instead of 404 for a missing key,
-            # which would turn harmless duplicate messages into retries.
             - Effect: Allow
               Action: s3:ListBucket
               Resource: !GetAtt UploadBucket.Arn
               Condition:
                 StringLike:
                   s3:prefix: "uploads/*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt DocumentsTable.Arn
       Events:
         DocumentQueueEvent:
           Type: SQS
@@ -215,7 +251,7 @@ Resources:
             FunctionResponseTypes:
               - ReportBatchItemFailures
             ScalingConfig:
-              MaximumConcurrency: 2   # caps parallel workers, so a flood cannot run up costs
+              MaximumConcurrency: 2
 
 Outputs:
   UploadBucketName:
@@ -233,3 +269,6 @@ Outputs:
   DeadLetterQueueUrl:
     Description: Dead-letter queue for failed jobs
     Value: !Ref DeadLetterQueue
+  TableName:
+    Description: DynamoDB table for document records
+    Value: !Ref DocumentsTable
