@@ -14,3 +14,6 @@ REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "")
 UPLOAD_PREFIX = "uploads/"
 UPLOAD_URL_EXPIRY_SECONDS = 300  # 5 minutes, as in the requirements
+
+TABLE_NAME = os.environ.get("TABLE_NAME", "")
+PENDING_TTL_SECONDS = 24 * 60 * 60  # abandoned PENDING records expire after 24 hours

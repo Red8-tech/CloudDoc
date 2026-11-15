@@ -60,13 +60,12 @@ PENDING -> PROCESSING -> COMPLETED
 | Transition | Who | Condition (DynamoDB conditional write) |
 |------------|-----|-----------------------------------------|
 | (new) -> PENDING | API handler | `attribute_not_exists(document_id)` |
-| PENDING -> PROCESSING | Worker | `status = PENDING` |
+| PENDING or PROCESSING -> PROCESSING | Worker | record exists and status is PENDING or PROCESSING (so an SQS retry can resume after a crash) |
 | PROCESSING -> COMPLETED | Worker | `status = PROCESSING` |
 | PROCESSING -> FAILED | Worker | `status = PROCESSING` |
 
-Conditions make the worker idempotent. If SQS delivers the same message twice,
-the second attempt fails the `status = PENDING` check and the worker stops
-instead of processing the file again.
+COMPLETED and FAILED are final. Known limitation: a message that exhausts its
+retries goes to the DLQ and leaves the record in PROCESSING. Week 7 adds an alarm for this.
 
 ## 6. S3 layout
 
