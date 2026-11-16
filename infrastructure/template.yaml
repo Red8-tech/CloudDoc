@@ -7,6 +7,13 @@ Parameters:
     Type: String
     Default: dev
     AllowedValues: [dev, prod]
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Email address for alarm notifications. Leave empty to create alarms without email.
+    
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
 
 Globals:
   Function:
@@ -253,6 +260,85 @@ Resources:
             ScalingConfig:
               MaximumConcurrency: 2
 
+  # ---------- Alerts ----------
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub clouddoc-alerts-${Stage}
+
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  DeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub clouddoc-dlq-not-empty-${Stage}
+      AlarmDescription: A document message failed all retries. See docs/runbook.md.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  WorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub clouddoc-worker-errors-${Stage}
+      AlarmDescription: The worker crashed or timed out. See docs/runbook.md.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref WorkerFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  Api5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub clouddoc-api-5xx-${Stage}
+      AlarmDescription: The API returned a server error. See docs/runbook.md.
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref HttpApi
+        - Name: Stage
+          Value: !Ref Stage
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
 Outputs:
   UploadBucketName:
     Description: Name of the upload bucket
@@ -272,3 +358,6 @@ Outputs:
   TableName:
     Description: DynamoDB table for document records
     Value: !Ref DocumentsTable
+  AlertTopicArn:
+    Description: SNS topic that receives alarm notifications
+    Value: !Ref AlertTopic

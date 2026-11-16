@@ -4,3 +4,4 @@ pytest-cov
 moto[s3,sqs,dynamodb]
 requests
 botocore[crt]
+ruff
