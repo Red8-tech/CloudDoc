@@ -43,7 +43,7 @@ flowchart LR
 
 ## Screenshots
 
-![Dashboard during a load test](docs/images/dashboard(2).png)
+![Dashboard during a load test](docs/images/dashboard.png)
 ![A completed document](docs/images/status-completed.png)
 
 ## Tech stack
