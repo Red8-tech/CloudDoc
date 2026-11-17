@@ -108,7 +108,7 @@ def report(expected: dict, results: dict, wall_seconds: float) -> bool:
     return not unfinished and not wrong
 
 
-def burst(count: int = 40) -> None:
+def burst(count: int = 150) -> None:
     """Fire many requests at once to show the API throttle (HTTP 429)."""
     time.sleep(5)  # let the throttle refill first
     url = f"{API_URL}/documents/00000000-0000-4000-8000-000000000000"
