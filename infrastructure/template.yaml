@@ -339,6 +339,88 @@ Resources:
       OKActions:
         - !Ref AlertTopic
 
+  # ---------- Dashboard ----------
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub clouddoc-${Stage}
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "text", "x": 0, "y": 0, "width": 24, "height": 2,
+              "properties": { "markdown": "# CloudDoc (${Stage})\nS3 upload, SQS queue, Lambda worker, DynamoDB tracking. Runbook: docs/runbook.md" }
+            },
+            {
+              "type": "metric", "x": 0, "y": 2, "width": 12, "height": 6,
+              "properties": {
+                "title": "API requests and errors", "region": "${AWS::Region}",
+                "view": "timeSeries", "stat": "Sum", "period": 300,
+                "metrics": [
+                  ["AWS/ApiGateway", "Count", "ApiId", "${HttpApi}", "Stage", "${Stage}"],
+                  ["AWS/ApiGateway", "4xx", "ApiId", "${HttpApi}", "Stage", "${Stage}"],
+                  ["AWS/ApiGateway", "5xx", "ApiId", "${HttpApi}", "Stage", "${Stage}"]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 12, "y": 2, "width": 12, "height": 6,
+              "properties": {
+                "title": "Queue depth (messages waiting)", "region": "${AWS::Region}",
+                "view": "timeSeries", "stat": "Maximum", "period": 60,
+                "metrics": [
+                  ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${DocumentQueue.QueueName}"],
+                  ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${DeadLetterQueue.QueueName}"]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 0, "y": 8, "width": 12, "height": 6,
+              "properties": {
+                "title": "Worker invocations and errors", "region": "${AWS::Region}",
+                "view": "timeSeries", "stat": "Sum", "period": 60,
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${WorkerFunction}"],
+                  ["AWS/Lambda", "Errors", "FunctionName", "${WorkerFunction}"]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 12, "y": 8, "width": 12, "height": 6,
+              "properties": {
+                "title": "Worker duration (ms)", "region": "${AWS::Region}",
+                "view": "timeSeries", "stat": "Average", "period": 60,
+                "metrics": [
+                  ["AWS/Lambda", "Duration", "FunctionName", "${WorkerFunction}"],
+                  ["AWS/Lambda", "Duration", "FunctionName", "${WorkerFunction}", { "stat": "Maximum" }]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 0, "y": 14, "width": 12, "height": 6,
+              "properties": {
+                "title": "DynamoDB consumed capacity", "region": "${AWS::Region}",
+                "view": "timeSeries", "stat": "Sum", "period": 60,
+                "metrics": [
+                  ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "${DocumentsTable}"],
+                  ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${DocumentsTable}"]
+                ]
+              }
+            },
+            {
+              "type": "alarm", "x": 12, "y": 14, "width": 12, "height": 6,
+              "properties": {
+                "title": "Alarm status",
+                "alarms": [
+                  "${DeadLetterQueueAlarm.Arn}",
+                  "${WorkerErrorsAlarm.Arn}",
+                  "${Api5xxAlarm.Arn}"
+                ]
+              }
+            }
+          ]
+        }
+
 Outputs:
   UploadBucketName:
     Description: Name of the upload bucket
